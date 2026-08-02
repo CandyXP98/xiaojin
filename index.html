@@ -75,7 +75,20 @@
     // 即使服务器临时掉线，已缓存的页面仍能正常进入并使用。
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js').catch(function () {});
+        navigator.serviceWorker.register('./sw.js').then(function (reg) {
+          // 检测到新版本 Service Worker：自动刷新以应用最新页面（新功能/新图标）
+          if (reg && reg.addEventListener) {
+            reg.addEventListener('updatefound', function () {
+              var nw = reg.installing;
+              if (!nw) return;
+              nw.addEventListener('statechange', function () {
+                if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+                  window.location.reload();
+                }
+              });
+            });
+          }
+        }).catch(function () {});
       });
     }
   </script>
