@@ -56,7 +56,14 @@ const Diary = {
   renderOverview(diary) {
     const todos = getAggregatedTodos(currentDate);
     const doneCount = todos.filter(t => t.done).length;
-    const sleepDur = diary.sleep ? calcSleepDuration(diary.sleep.bedtime, diary.sleep.wake) : '未记录';
+    const sleepDur = (() => {
+      if (!diary.sleep) return '未记录';
+      const parts = [];
+      if (diary.sleep.bedtime && diary.sleep.wake) parts.push('夜' + calcSleepDuration(diary.sleep.bedtime, diary.sleep.wake));
+      const nap = calcNapDuration(diary.sleep.napStart, diary.sleep.napEnd);
+      if (nap) parts.push('午休' + nap);
+      return parts.length ? parts.join(' + ') : '未记录';
+    })();
     const mood = diary.mood || null;
     const moodMap = { happy: '😊 开心', normal: '😐 一般', sad: '😢 不开心', anxious: '😰 焦虑' };
     const moodEmoji = { happy: '😊', normal: '😐', sad: '😢', anxious: '😰' };
@@ -256,7 +263,9 @@ const Diary = {
   // ===== 睡眠记录 =====
   renderSleep(diary) {
     const sleep = diary.sleep || {};
-    const duration = calcSleepDuration(sleep.bedtime, sleep.wake);
+    const nightDur = (sleep.bedtime && sleep.wake) ? calcSleepDuration(sleep.bedtime, sleep.wake) : '';
+    const napDur = calcNapDuration(sleep.napStart, sleep.napEnd);
+    const duration = [nightDur && ('夜' + nightDur), napDur && ('午休' + napDur)].filter(Boolean).join(' + ') || '请记录入睡和起床时间';
     let html = `<div class="card">
       <div class="card-title"><span class="emoji">😴</span>睡眠记录 · ${fmtDate(currentDate)}</div>
       <div class="field-row">
@@ -269,9 +278,19 @@ const Diary = {
           <input class="input" type="time" id="sleepWake" value="${sleep.wake || ''}">
         </div>
       </div>
+      <div class="field-row">
+        <div class="field">
+          <label class="field-label">午睡开始</label>
+          <input class="input" type="time" id="sleepNapStart" value="${sleep.napStart || ''}">
+        </div>
+        <div class="field">
+          <label class="field-label">午睡结束</label>
+          <input class="input" type="time" id="sleepNapEnd" value="${sleep.napEnd || ''}">
+        </div>
+      </div>
       <div class="record-row">
         <div class="record-label">睡眠时长</div>
-        <div class="record-value" id="sleepDur">${duration || '请记录入睡和起床时间'}</div>
+        <div class="record-value" id="sleepDur">${duration}</div>
       </div>
       <button class="btn btn-block" id="saveSleep">保存睡眠记录</button>
     </div>`;
@@ -293,9 +312,9 @@ const Diary = {
       d.setDate(d.getDate() - i);
       const ds = dateStr(d);
       const sleep = data.diary[ds]?.sleep;
-      const dur = sleep ? calcSleepDuration(sleep.bedtime, sleep.wake) : '';
-      const hours = dur ? parseInt(dur) : 0;
-      days.push({ ds, dur, hours, label: `${d.getMonth() + 1}/${d.getDate()}` });
+      const total = sleep ? sleepTotalMinutes(sleep) : 0;
+      const hours = total ? Math.round(total / 60 * 10) / 10 : 0;
+      days.push({ ds, dur: total ? hours + 'h' : '-', hours, label: `${d.getMonth() + 1}/${d.getDate()}` });
     }
     const maxH = Math.max(8, ...days.map(d => d.hours));
 
@@ -429,13 +448,12 @@ const Diary = {
       totalTodos += todos.length;
       doneTodos += todos.filter(t => t.done).length;
       if (d.mindfulness?.mood) moodCount[d.mindfulness.mood]++;
-      if (d.sleep?.bedtime && d.sleep?.wake) {
-        const [bh, bm] = d.sleep.bedtime.split(':').map(Number);
-        const [wh, wm] = d.sleep.wake.split(':').map(Number);
-        let mins = (wh * 60 + wm) - (bh * 60 + bm);
-        if (mins < 0) mins += 1440;
-        sleepTotal += mins / 60;
-        sleepDays++;
+      if (d.sleep) {
+        const total = sleepTotalMinutes(d.sleep);
+        if (total) {
+          sleepTotal += total / 60;
+          sleepDays++;
+        }
       }
       if (d.checkin) {
         data.media.accounts.forEach(acc => {
@@ -644,24 +662,32 @@ const Diary = {
       saveSleep.addEventListener('click', () => {
         const bedtime = $('#sleepBed').value;
         const wake = $('#sleepWake').value;
+        const napStart = $('#sleepNapStart').value;
+        const napEnd = $('#sleepNapEnd').value;
         const data = Store.get();
         const diary = data.diary[currentDate] || (data.diary[currentDate] = {});
-        diary.sleep = { bedtime, wake };
+        diary.sleep = { bedtime, wake, napStart, napEnd };
         Store.save();
         toast('睡眠记录已保存');
         self.render();
       });
     }
 
-    // 睡眠实时计算
+    // 睡眠实时计算（含午睡）
     const sleepBed = $('#sleepBed');
     const sleepWake = $('#sleepWake');
+    const sleepNapStart = $('#sleepNapStart');
+    const sleepNapEnd = $('#sleepNapEnd');
     const updateDur = () => {
-      const dur = calcSleepDuration(sleepBed.value, sleepWake.value);
-      $('#sleepDur').textContent = dur || '请记录入睡和起床时间';
+      const night = (sleepBed.value && sleepWake.value) ? '夜' + calcSleepDuration(sleepBed.value, sleepWake.value) : '';
+      const nap = calcNapDuration(sleepNapStart.value, sleepNapEnd.value);
+      const text = [night && night, nap && ('午休' + nap)].filter(Boolean).join(' + ');
+      $('#sleepDur').textContent = text || '请记录入睡和起床时间';
     };
     if (sleepBed) sleepBed.addEventListener('input', updateDur);
     if (sleepWake) sleepWake.addEventListener('input', updateDur);
+    if (sleepNapStart) sleepNapStart.addEventListener('input', updateDur);
+    if (sleepNapEnd) sleepNapEnd.addEventListener('input', updateDur);
 
     // 饮食保存
     const saveDiet = $('#saveDiet');

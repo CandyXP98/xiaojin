@@ -207,6 +207,42 @@ function calcSleepDuration(bedtime, wakeTime) {
   return `${h}小时${m}分`;
 }
 
+// 午睡时长：返回 "X小时Y分" / "Y分" / null（未记录）
+function calcNapDuration(napStart, napEnd) {
+  if (!napStart || !napEnd) return null;
+  const [sh, sm] = napStart.split(':').map(Number);
+  const [eh, em] = napEnd.split(':').map(Number);
+  let mins = (eh * 60 + em) - (sh * 60 + sm);
+  if (mins <= 0) return 0;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h > 0) return `${h}小时${m}分`;
+  return `${m}分`;
+}
+
+// 当日总睡眠分钟数（夜睡 + 午睡），无记录返回 null
+function sleepTotalMinutes(sleep) {
+  if (!sleep) return null;
+  let night = 0;
+  if (sleep.bedtime && sleep.wake) {
+    const [bh, bm] = sleep.bedtime.split(':').map(Number);
+    const [wh, wm] = sleep.wake.split(':').map(Number);
+    let n = (wh * 60 + wm) - (bh * 60 + bm);
+    if (n < 0) n += 1440;
+    night = n;
+  }
+  let nap = 0;
+  if (sleep.napStart && sleep.napEnd) {
+    const [sh, sm] = sleep.napStart.split(':').map(Number);
+    const [eh, em] = sleep.napEnd.split(':').map(Number);
+    let p = (eh * 60 + em) - (sh * 60 + sm);
+    if (p < 0) p += 1440;
+    nap = p;
+  }
+  if (night === 0 && nap === 0) return null;
+  return night + nap;
+}
+
 // 聚合待办（日记 + 发文日历 + 养护日历 + 排单日历）
 function getAggregatedTodos(date) {
   const data = Store.get();
